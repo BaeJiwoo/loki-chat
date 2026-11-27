@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loki-chat
+resources:
+  - ../../base
+# TODO(INFRA-03/05): 실제 엔드포인트는 Terraform 출력값으로 채움. chat-db 시크릿은 External Secrets로 동기화
+images:
+  - { name: chat-api,    newName: "<account>.dkr.ecr.ap-northeast-2.amazonaws.com/chat-api",    newTag: "1.0.0" }
+  - { name: chat-worker, newName: "<account>.dkr.ecr.ap-northeast-2.amazonaws.com/chat-worker", newTag: "1.0.0" }
+configMapGenerator:
+  - name: chat-config
+    literals:
+      - DB_WRITER_HOST=<aurora-cluster-endpoint>
+      - DB_READER_HOST=<aurora-reader-endpoint>
+      - CACHE_ADDR=<elasticache-config-endpoint>:6379
+      - SQS_QUEUE_URL=<chat-events.fifo url>
+      - LLM_ROUTER_URL=http://llm-router:8000
