@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: loki-chat
+resources:
+  - ../../base
+# TODO(INFRA-02): llm-server를 mock LLM(APP-08)으로 교체, 로컬 Postgres/Redis/LocalStack 엔드포인트
+replicas:
+  - { name: chat-api, count: 1 }
+  - { name: chat-worker, count: 1 }
+  - { name: llm-server, count: 0 }
+configMapGenerator:
+  - name: chat-config
+    literals:
+      - DB_WRITER_HOST=postgres
+      - DB_READER_HOST=postgres
+      - CACHE_ADDR=redis:6379
+      - SQS_QUEUE_URL=http://localstack:4566/000000000000/chat-events.fifo
+      - LLM_ROUTER_URL=http://mock-llm:8000
+secretGenerator:
+  - name: chat-db
+    literals:
+      - password=local-dev-only
