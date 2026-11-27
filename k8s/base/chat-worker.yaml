@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-worker
+  labels: { app: chat-worker, tier: async }
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1, maxSurge: 1 }
+  selector:
+    matchLabels: { app: chat-worker }
+  template:
+    metadata:
+      labels: { app: chat-worker, tier: async }
+    spec:
+      serviceAccountName: chat-worker
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: chat-worker
+          image: chat-worker:dev         # overlay에서 교체
+          ports:
+            - { name: metrics, containerPort: 9090 }
+          envFrom:
+            - configMapRef: { name: chat-config }
+          env:
+            - { name: SUMMARY_EVERY_N_TURNS, value: "20" }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: chat-db, key: password } }
+          resources:
+            requests: { cpu: "250m", memory: "256Mi" }
+            limits:   { memory: "512Mi" }
+          livenessProbe:
+            httpGet: { path: /healthz, port: metrics }
+            periodSeconds: 15

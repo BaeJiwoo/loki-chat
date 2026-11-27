@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-server
+  labels: { app: llm-server, tier: inference }
+spec:
+  replicas: 4                          # 비피크 최소치. 0으로 줄이지 않음 (콜드 스타트 수 분)
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app: llm-server }
+  template:
+    metadata:
+      labels: { app: llm-server, tier: inference }
+    spec:
+      nodeSelector:
+        karpenter.sh/nodepool: gpu-inference
+      tolerations:
+        - { key: nvidia.com/gpu, operator: Exists, effect: NoSchedule }
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: llm-server } }
+      terminationGracePeriodSeconds: 120
+      initContainers:
+        - name: fetch-model
+          image: amazon/aws-cli:latest   # TODO: 버전 고정
+          command: ["aws", "s3", "sync", "s3://chat-models/chat-8b-v1/", "/models/chat-8b"]
+          volumeMounts: [{ name: models, mountPath: /models }]
+      containers:
+        - name: vllm
+          image: vllm/vllm-openai:latest # TODO: 버전 고정
+          args:
+            - --model=/models/chat-8b
+            - --served-model-name=chat
+            - --enable-prefix-caching
+            - --quantization=fp8
+            - --max-model-len=4096
+            - --max-num-seqs=48
+            - --gpu-memory-utilization=0.90
+          ports: [{ name: http, containerPort: 8000 }]
+          resources:
+            requests: { cpu: "4", memory: 24Gi }
+            limits:   { nvidia.com/gpu: 1, memory: 32Gi }
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          volumeMounts:
+            - { name: models, mountPath: /models }
+            - { name: dshm,   mountPath: /dev/shm }
+      volumes:
+        - name: models
+          emptyDir: {}
+        - name: dshm
+          emptyDir: { medium: Memory, sizeLimit: 8Gi }

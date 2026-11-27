@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - chat-api.yaml
+  - chat-worker.yaml
+  - llm-server.yaml
+# TODO(INFRA-03): Service, Ingress(ALB), PDB, KEDA ScaledObject, ServiceAccount

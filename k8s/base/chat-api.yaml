@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chat-api
+  labels: { app: chat-api, tier: realtime }
+spec:
+  replicas: 4                          # KEDA가 관리 (최소치)
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 25%
+  selector:
+    matchLabels: { app: chat-api }
+  template:
+    metadata:
+      labels: { app: chat-api, tier: realtime }
+    spec:
+      serviceAccountName: chat-api
+      terminationGracePeriodSeconds: 60
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: chat-api } }
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector: { matchLabels: { app: chat-api } }
+      containers:
+        - name: chat-api
+          image: chat-api:dev            # overlay에서 교체
+          ports:
+            - { name: http, containerPort: 8080 }
+            - { name: metrics, containerPort: 9090 }
+          envFrom:
+            - configMapRef: { name: chat-config }
+          env:
+            - { name: LLM_FIRST_TOKEN_TIMEOUT_MS, value: "1800" }
+            - { name: CONTEXT_LOAD_TIMEOUT_MS,    value: "100" }
+            - { name: CONTEXT_RECENT_TURNS,       value: "16" }
+            - { name: CACHE_CONTEXT_TTL_HOURS,    value: "48" }
+            - { name: MAX_INFLIGHT_REQUESTS,      value: "200" }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: chat-db, key: password } }
+          resources:
+            requests: { cpu: "500m", memory: "512Mi" }
+            limits:   { memory: "1Gi" }
+          startupProbe:
+            httpGet: { path: /startup, port: http }
+            periodSeconds: 2
+            failureThreshold: 30
+          readinessProbe:
+            httpGet: { path: /ready, port: http }
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec: { command: ["sh", "-c", "curl -s -XPOST localhost:8080/drain; sleep 15"] }
